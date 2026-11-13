@@ -42,6 +42,7 @@ class GamesControllerTest < ActionDispatch::IntegrationTest
     assert_response :success
     body = response.parsed_body
     assert_equal game.id, body.fetch('id')
+    assert_equal owner.id, body.fetch('current_gamer').fetch('user_id')
     assert_equal [owner.id, second.id].sort, body.fetch('gamers').map { |gamer| gamer.fetch('user').fetch('id') }.sort
     assert_equal 1, body.fetch('cells').first.first.fetch('x')
     message = JSON.parse(ActionCable.server.pubsub.broadcasts("Game_#{game.id}").last)
@@ -112,5 +113,49 @@ class GamesControllerTest < ActionDispatch::IntegrationTest
     assert_response :success
     assert_equal 'finished', game.reload.state
     assert_nil game.winner
+  end
+
+  test 'two players alternate until the owner wins and further moves are rejected' do
+    owner = User.create!(email: 'match-owner@example.com', password: 'password123')
+    opponent = User.create!(email: 'match-opponent@example.com', password: 'password123')
+    game = Game.create!(user: owner, dimension: 10)
+    owner_gamer = game.gamers.create!(user: owner)
+    opponent_gamer = game.gamers.create!(user: opponent)
+    (1..10).each { |y| (1..10).each { |x| game.cells.create!(x: x, y: y) } }
+    moves = [[owner, 1, 1, 'x'], [opponent, 1, 2, 'o'],
+             [owner, 2, 1, 'x'], [opponent, 2, 2, 'o'],
+             [owner, 3, 1, 'x'], [opponent, 3, 2, 'o'],
+             [owner, 4, 1, 'x'], [opponent, 4, 2, 'o'],
+             [owner, 5, 1, 'x']]
+
+    moves.each_with_index do |(user, x, y, kind), index|
+      sign_in user
+      cell = game.cells.find_by!(x: x, y: y)
+      assert_broadcasts("Game_#{game.id}", 1) do
+        post make_step_game_path(game), params: { cell: { id: cell.id } }, as: :json
+      end
+      assert_response :success
+      assert_equal kind, cell.reload.kind
+      assert_equal index + 1, game.steps.count
+      assert_equal user.id, game.steps.order(:id).last.gamer.user_id
+      message = JSON.parse(ActionCable.server.pubsub.broadcasts("Game_#{game.id}").last).fetch('game')
+      assert_equal kind, message.fetch('cells')[y - 1][x - 1].fetch('kind')
+      if index < 8
+        assert_equal(index.even? ? opponent_gamer.id : owner_gamer.id, game.reload.current_gamer.id)
+      else
+        assert_equal 'finished', game.reload.state
+        assert_equal owner_gamer.id, game.winner_id
+        assert_equal owner_gamer.id, message.fetch('winner').fetch('id')
+      end
+      sign_out user
+    end
+
+    sign_in opponent
+    assert_no_difference('Step.count') do
+      assert_no_broadcasts("Game_#{game.id}") do
+        post make_step_game_path(game), params: { cell: { id: game.cells.find_by!(x: 6, y: 1).id } }, as: :json
+      end
+    end
+    assert_response :unprocessable_entity
   end
 end

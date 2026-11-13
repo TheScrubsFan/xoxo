@@ -18,5 +18,7 @@ class GameSerializer < Blueprinter::Base
       .as_json
   end
 
-  field :current_gamer, blueprint: GamerSerializer
+  field :current_gamer do |game|
+    game.current_gamer&.as_json
+  end
 end

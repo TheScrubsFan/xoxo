@@ -41,28 +41,12 @@ class GamesController < ApplicationController
 
   def make_step
     game = Game.find params[:id]
-    gamer = game.gamers.find_by(user_id: current_user.id)
-    cell = Cell.find(params[:cell][:id])
-
-    kind = game.steps.any? ? :o : :x
-    gamer.update(kind: kind) unless gamer.kind
-
-    game.steps.create(
-      cell_id: cell.id,
-      gamer_id: gamer.id
-    )
-    cell.update(kind: gamer.kind)
-
-    winner = Games::Logic::Win.perform game
-    game.update(state: :finished, winner: winner) if winner
-
-    if game.state == 'started' && game.cells.where.not(kind: nil).count > 75
-      draw = Games::Logic::Draw.perform(game)
-
-      game.update(state: :finished) if draw
-    end
-
+    cell = params[:cell]
+    cell_id = cell[:id] if cell.is_a?(ActionController::Parameters)
+    Games::MakeStep.call(game: game, user: current_user, cell_id: cell_id)
     broadcast game
+  rescue Games::MakeStep::InvalidMove => error
+    render json: { error: error.message }, status: :unprocessable_entity
   end
 
   private
