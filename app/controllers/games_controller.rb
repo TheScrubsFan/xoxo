@@ -22,7 +22,7 @@ class GamesController < ApplicationController
 
     game.cells.create(dimension_params)
 
-    render json: { game: game }
+    render json: { game: game.as_json }
   end
 
   def show
@@ -68,6 +68,6 @@ class GamesController < ApplicationController
   private
 
   def broadcast(game)
-    ActionCable.server.broadcast "Game_#{game.id}", game: GameSerializer.render_as_hash(game)
+    ActionCable.server.broadcast "Game_#{game.id}", { game: GameSerializer.render_as_hash(game) }
   end
 end

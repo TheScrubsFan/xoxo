@@ -15,6 +15,7 @@ class GameSerializer < Blueprinter::Base
       .values
       .sort_by{ |v| v.first.y }
       .each{ |v| v.sort_by!(&:x) }
+      .as_json
   end
 
   field :current_gamer, blueprint: GamerSerializer
